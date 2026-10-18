@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.coordigent/coordigent",
+  "title": "Coordigent",
+  "description": "Coding agents in one repo see each other, get warned before shared edits, and message.",
+  "version": "0.1.0",
+  "websiteUrl": "https://coordigent.com/docs",
+  "repository": {
+    "url": "https://github.com/startupproj/coordigent-public",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://coordigent.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <token>. Create a token at https://coordigent.com under Setup.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

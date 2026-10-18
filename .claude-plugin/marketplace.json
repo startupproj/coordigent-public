@@ -1,0 +1,16 @@
+{
+  "name": "coordigent",
+  "owner": {
+    "name": "Coordigent",
+    "url": "https://coordigent.com"
+  },
+  "description": "Coordigent's plugin for Claude Code.",
+  "plugins": [
+    {
+      "name": "coordigent",
+      "source": "./plugins/coordigent",
+      "description": "Coordinates AI coding agents working in parallel on a shared repo: activity capture, the coordigent MCP server, the coordination skill and the /coordigent-status, -msg and -handoff commands.",
+      "category": "development"
+    }
+  ]
+}

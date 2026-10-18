@@ -1,0 +1,42 @@
+{
+  "name": "coordigent",
+  "version": "0.1.2",
+  "description": "Runs Coordigent's coord CLI, or with `mcp` its stdio MCP server: downloads the coord and coord-mcp binaries for this machine on first run and checks their SHA-256.",
+  "homepage": "https://coordigent.com",
+  "license": "MIT",
+  "mcpName": "com.coordigent/coordigent",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "coding-agents",
+    "multi-agent",
+    "claude-code",
+    "codex",
+    "cursor",
+    "coordination",
+    "developer-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/startupproj/coordigent-public.git",
+    "directory": "npm"
+  },
+  "bin": {
+    "coordigent": "bin/coordigent.js"
+  },
+  "files": [
+    "bin/coordigent.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

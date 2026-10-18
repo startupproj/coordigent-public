@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "coordigent": {
+      "type": "stdio",
+      "command": "coord-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
