@@ -1,7 +1,7 @@
 {
   "name": "coordigent",
-  "version": "0.1.2",
-  "description": "Runs Coordigent's coord CLI, or with `mcp` its stdio MCP server: downloads the coord and coord-mcp binaries for this machine on first run and checks their SHA-256.",
+  "version": "0.1.3",
+  "description": "Coordigent's coord and coord-mcp commands: downloads the binaries for this machine on first run, checks their SHA-256, and runs them. `npx coordigent` and `npx coordigent mcp` work too.",
   "homepage": "https://coordigent.com",
   "license": "MIT",
   "mcpName": "com.coordigent/coordigent",
@@ -22,9 +22,13 @@
     "directory": "npm"
   },
   "bin": {
+    "coord": "bin/coord.js",
+    "coord-mcp": "bin/coord-mcp.js",
     "coordigent": "bin/coordigent.js"
   },
   "files": [
+    "bin/coord.js",
+    "bin/coord-mcp.js",
     "bin/coordigent.js"
   ],
   "engines": {

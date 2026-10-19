@@ -3,12 +3,17 @@
   "name": "com.coordigent/coordigent",
   "title": "Coordigent",
   "description": "Coding agents in one repo see each other, get warned before shared edits, and message.",
-  "version": "0.1.0",
-  "websiteUrl": "https://coordigent.com/docs",
-  "repository": {
-    "url": "https://github.com/startupproj/coordigent-public",
-    "source": "github"
-  },
+  "version": "0.1.3",
+  "websiteUrl": "https://coordigent.com/docs/integrations/hosted-server",
+  "icons": [
+    {
+      "src": "https://coordigent.com/brand-marks/mark-512.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
   "remotes": [
     {
       "type": "streamable-http",
@@ -16,11 +21,52 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Bearer <token>. Create a token at https://coordigent.com under Setup.",
+          "description": "Bearer token for your Coordigent project. Make an agent token with `coord tokens create <name>` or in Settings > Tokens on coordigent.com.",
+          "value": "Bearer {token}",
           "isRequired": true,
-          "isSecret": true
+          "isSecret": true,
+          "variables": {
+            "token": {
+              "description": "A Coordigent agent token (starts cgat_).",
+              "isRequired": true,
+              "isSecret": true
+            }
+          }
         }
       ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "coordigent",
+      "version": "0.1.3",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-y",
+          "description": "Install the package without asking."
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "Runs coord-mcp, Coordigent's stdio MCP server, instead of the coord CLI."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "COORDIGENT_REPO",
+          "description": "The repo as owner/name. Needed only when the client does not start the server inside the repo.",
+          "isRequired": false
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
     }
   ]
 }

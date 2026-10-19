@@ -59,9 +59,12 @@ install them first (above). Its README says what its hooks record and send:
 Copilot, Windsurf, Perplexity and any other MCP client are one `coord install <client>` away:
 https://coordigent.com/docs/integrations/other-clients
 
-`server.json` is Coordigent's entry for the official MCP Registry: the hosted server at
-`https://coordigent.com/mcp`, with an `Authorization: Bearer <token>` header (create a token at
-https://coordigent.com under Setup).
+`server.json` is Coordigent's entry for the official MCP Registry, `com.coordigent/coordigent`. It
+has two ways in: the hosted server at `https://coordigent.com/mcp`, with an
+`Authorization: Bearer <token>` header carrying an agent token (make one with
+`coord tokens create <name>` or in Settings > Tokens on coordigent.com), and the stdio server
+through npm, `npx -y coordigent mcp`. [llms-install.md](llms-install.md) has the setup for Cline
+and other clients that read it: https://coordigent.com/docs/integrations/hosted-server
 
 ## What is here
 
@@ -71,6 +74,8 @@ https://coordigent.com under Setup).
 | `npm/` | The `coordigent` npm launcher (`npx coordigent`) |
 | `.claude-plugin/marketplace.json`, `plugins/coordigent/` | The Claude Code plugin and its marketplace |
 | `server.json` | The MCP Registry entry |
+| `llms-install.md` | Setup steps for an agent installing Coordigent's MCP server (Cline) |
+| `glama.json` | The maintainers Glama's directory lists for this repository |
 | `mark.svg` | The Coordigent mark |
 
 ## License

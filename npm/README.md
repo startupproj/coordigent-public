@@ -25,8 +25,9 @@ After that, every run passes its arguments straight to `coord` and exits with it
 - **PATH:** the launcher does not change `PATH`. Run commands as `npx coordigent <command>`, or use
   the one-line installer (https://coordigent.com/docs/get-started/install), which adds `coord` to
   `PATH`.
-- **MCP:** an `mcp` mode, `npx coordigent mcp` to start the MCP server directly, is planned and not
-  available yet. Today `coord connect` registers `coord-mcp` with your agent apps.
+- **MCP:** `npx -y coordigent mcp` starts `coord-mcp`, Coordigent's stdio MCP server, for an MCP
+  client to launch directly; it needs no account to start. `coord connect` also registers
+  `coord-mcp` with your agent apps.
 
 ## Documentation
 
