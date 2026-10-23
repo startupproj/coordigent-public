@@ -2,9 +2,27 @@
 #
 #   irm https://coordigent.com/install.ps1 | iex
 #
-# Downloads coord.exe and coord-mcp.exe into %LOCALAPPDATA%\Coordigent\bin and
-# adds that directory to the user PATH (HKCU, no admin). Without a token it
-# stops there and points at `coord login`. With a token it runs `coord connect`.
+# Downloads coord.exe and coord-mcp.exe into %USERPROFILE%\.coordigent\bin, adds
+# that directory to the user PATH (HKCU, no admin) and to this session's $env:Path,
+# so `coord` works in this window at once, then runs `coord setup`: it signs this
+# machine in (the browser approval at a console; a token in CI), links every agent
+# app it finds, connects the current folder when it is a git repo and starts this
+# version's daemon, and ends with what is now true.
+#
+# -NoLogin skips the browser sign-in; -NoConnect skips sign-in, linking and
+# connecting (it still moves an older install, below) and prints what to run next.
+#
+# Not %LOCALAPPDATA%: a packaged (MSIX) app such as the Claude desktop app has
+# its new files under AppData, and its HKCU writes, redirected to a private
+# per-app copy, and so does every PowerShell its agents start. Other programs
+# never see them (BUG 129). The profile outside AppData is not redirected.
+# https://learn.microsoft.com/windows/msix/desktop/desktop-to-uwp-behind-the-scenes
+#
+# An older install (%LOCALAPPDATA%\Coordigent\bin, and copies packaged apps were
+# given of it) is retired by the new coord.exe, `coord setup` (--move-only with
+# -NoConnect): it first points every agent app's hooks and MCP entry at the new
+# folder, reads them back, and only then deletes the old copies, leaving one
+# that something still runs. Never a hook left naming a deleted coord.exe.
 #
 #   $env:TOWER_TOKEN = "<token>"; irm https://coordigent.com/install.ps1 | iex
 #   iex "& { $(irm https://coordigent.com/install.ps1) } -Token <token>"
@@ -20,6 +38,7 @@ param(
   [string]$Token = $env:TOWER_TOKEN,
   [string]$BinDir = $env:TOWER_BIN_DIR,
   [switch]$NoConnect,
+  [switch]$NoLogin,
   [switch]$NoPathUpdate,
   [switch]$Help
 )
@@ -48,10 +67,105 @@ param(
   }
 
   function Get-DefaultBinDir {
-    if (-not $env:LOCALAPPDATA) {
-      throw "install.ps1: LOCALAPPDATA is not set."
+    if (-not $env:USERPROFILE) {
+      throw "install.ps1: USERPROFILE is not set."
     }
-    return (Join-Path $env:LOCALAPPDATA "Coordigent\bin")
+    return (Join-Path $env:USERPROFILE ".coordigent\bin")
+  }
+
+  # Packaged apps' private copies of %LOCALAPPDATA%\Coordigent (...\Packages\<family>\LocalCache\Local\Coordigent).
+  function Get-PackagedCopies {
+    if (-not $env:LOCALAPPDATA) { return @() }
+    $packages = Join-Path $env:LOCALAPPDATA "Packages"
+    if (-not (Test-Path -LiteralPath $packages)) { return @() }
+    $found = @()
+    foreach ($family in (Get-ChildItem -LiteralPath $packages -Directory -ErrorAction SilentlyContinue)) {
+      $copy = Join-Path $family.FullName "LocalCache\Local\Coordigent"
+      if (Test-Path -LiteralPath $copy) { $found += $copy }
+    }
+    return $found
+  }
+
+  # The package family whose private AppData this PowerShell writes to, found by writing a file
+  # under %LOCALAPPDATA%\Coordigent and looking for where it landed; $null when it landed where it
+  # was written. GetCurrentPackageFullName is the first question, but a shell the Claude app started
+  # answered 15700 (no package) while its AppData writes had been redirected (tester, 2026-10-19).
+  function Get-RedirectedPackage {
+    if (-not $env:LOCALAPPDATA) { return $null }
+    if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) { return $null }
+    $dir = Join-Path $env:LOCALAPPDATA "Coordigent"
+    $created = -not (Test-Path -LiteralPath $dir)
+    $name = ".install-probe-$([Guid]::NewGuid().ToString('N'))"
+    $probe = Join-Path $dir $name
+    $family = $null
+    try {
+      [void][System.IO.Directory]::CreateDirectory($dir)
+      [System.IO.File]::WriteAllText($probe, "")
+      foreach ($copy in (Get-PackagedCopies)) {
+        if (Test-Path -LiteralPath (Join-Path $copy $name)) { $family = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $copy))) }
+      }
+    } catch {
+      Write-Verbose "AppData probe skipped: $_"
+    } finally {
+      Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+      if ($created -and (Test-Path -LiteralPath $dir) -and -not (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
+      }
+    }
+    return $family
+  }
+
+  # The packaged app this PowerShell runs inside, or $null. Asked of Windows
+  # (GetCurrentPackageFullName: 15700 APPMODEL_ERROR_NO_PACKAGE when there is
+  # none), since a packaged app leaves LOCALAPPDATA and PATH as they are.
+  # COORD_INSTALL_PACKAGE_NAME stands in for it in tests.
+  function Get-CoordPackageName {
+    if ($env:COORD_INSTALL_PACKAGE_NAME) { return $env:COORD_INSTALL_PACKAGE_NAME }
+    if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) { return $null }
+    try {
+      if (-not ("CoordigentAppModel" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class CoordigentAppModel {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetCurrentPackageFullName(ref int length, StringBuilder name);
+}
+"@
+      }
+      $length = 0
+      $code = [CoordigentAppModel]::GetCurrentPackageFullName([ref]$length, $null)
+      if ($code -ne 122 -or $length -le 0) { return $null }
+      $name = New-Object System.Text.StringBuilder $length
+      if ([CoordigentAppModel]::GetCurrentPackageFullName([ref]$length, $name) -ne 0) { return $null }
+      return $name.ToString()
+    } catch {
+      # Windows before 8 has no GetCurrentPackageFullName, and nothing there is packaged.
+      Write-Verbose "GetCurrentPackageFullName unavailable: $_"
+      return $null
+    }
+  }
+
+  function Remove-PathEntry {
+    param([string]$UserPath, [string]$Directory)
+    if ([string]::IsNullOrEmpty($UserPath)) { return $UserPath }
+    $target = $Directory.TrimEnd("\", "/").ToLowerInvariant()
+    $kept = @($UserPath -split ";" | Where-Object { $_.Trim().TrimEnd("\", "/").ToLowerInvariant() -ne $target })
+    return ($kept -join ";")
+  }
+
+  # The old %LOCALAPPDATA%\Coordigent\bin entry out of the user PATH, once the new folder is on it.
+  # The old binaries themselves are coord setup's to remove (see the top of this file).
+  function Remove-LegacyPathEntry {
+    if (-not $env:LOCALAPPDATA -or $NoPathUpdate) { return }
+    $legacy = Join-Path $env:LOCALAPPDATA "Coordigent\bin"
+    $current = Get-CoordUserPath
+    if (-not (Test-PathNeedsUpdate -UserPath $current -Directory $legacy)) {
+      Set-CoordUserPath -Value (Remove-PathEntry -UserPath $current -Directory $legacy)
+      Write-Host "Removed $legacy from the user PATH"
+    }
+    $env:Path = Remove-PathEntry -UserPath $env:Path -Directory $legacy
   }
 
   function Test-PathNeedsUpdate {
@@ -140,24 +254,10 @@ public static class CoordigentWin32 {
     }
   }
 
-  function Save-ServerUrl {
-    param([string]$ServerUrl)
-    $towerDir = if ($env:TOWER_DIR) { $env:TOWER_DIR } else { (Join-Path $env:USERPROFILE ".tower") }
-    $config = Join-Path $towerDir "config.json"
-    if (Test-Path -LiteralPath $config) {
-      try {
-        $current = (Get-Content -LiteralPath $config -Raw | ConvertFrom-Json).serverUrl
-        if ($current -and ($current.TrimEnd("/") -ne $ServerUrl.TrimEnd("/"))) {
-          Write-Host "This coord uses $current. To use $ServerUrl instead: coord login --server $ServerUrl"
-        }
-      } catch {
-        # Leave a broken config alone; do not overwrite a file we cannot parse.
-        Write-Verbose "Existing config.json unreadable; leaving it: $_"
-      }
-      return
-    }
+  function Write-ServerConfig {
+    param([string]$Config, [string]$ServerUrl)
     # Directory.CreateDirectory is literal and idempotent (New-Item has no LiteralPath switch).
-    [void][System.IO.Directory]::CreateDirectory($towerDir)
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $Config))
     $body = @"
 {
   "serverUrl": "$ServerUrl"
@@ -166,6 +266,81 @@ public static class CoordigentWin32 {
     # UTF-8 without BOM: Windows PowerShell 5.1's Set-Content -Encoding utf8 writes a BOM
     # that Node's JSON.parse rejects, so bare `coord` would crash after install.
     [System.IO.File]::WriteAllText($config, $body, (New-Object System.Text.UTF8Encoding $false))
+  }
+
+  # Whether a question can be asked: `irm | iex` at a console can; CI, -NonInteractive and piped input cannot.
+  function Test-CanAsk {
+    try {
+      return [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+    } catch {
+      return $false
+    }
+  }
+
+  # Same rules as install.sh's remember_server (and rememberServerDecision in install-ps1-pure.ts).
+  # No config: record this server. A config for another server: switch when that loses no login
+  # (logged out there, or -Token given for this one, or a yes at the console), moving the old
+  # login aside to config.<host>.json; otherwise keep it and say how to switch. config.json holds
+  # one login, so the old one cannot stay in use. $Answer stands in for the console in tests.
+  function Save-ServerUrl {
+    param([string]$ServerUrl, [string]$Token, [string]$Answer)
+    $towerDir = if ($env:TOWER_DIR) { $env:TOWER_DIR } else { (Join-Path $env:USERPROFILE ".tower") }
+    $config = Join-Path $towerDir "config.json"
+    if (-not (Test-Path -LiteralPath $config)) {
+      Write-ServerConfig -Config $config -ServerUrl $ServerUrl
+      return
+    }
+    try {
+      $existing = Get-Content -LiteralPath $config -Raw | ConvertFrom-Json
+    } catch {
+      # Leave a broken config alone; do not overwrite a file we cannot parse.
+      Write-Verbose "Existing config.json unreadable; leaving it: $_"
+      return
+    }
+    $current = [string]$existing.serverUrl
+    if ([string]::IsNullOrEmpty($current) -or ($current.TrimEnd("/") -eq $ServerUrl.TrimEnd("/"))) { return }
+    if ([string]::IsNullOrEmpty([string]$existing.token)) {
+      Write-ServerConfig -Config $config -ServerUrl $ServerUrl
+      Write-Host "Switched from $current to $ServerUrl (this machine was not logged in to $current)."
+      return
+    }
+    $doSwitch = -not [string]::IsNullOrEmpty($Token)
+    if (-not $doSwitch) {
+      if ([string]::IsNullOrEmpty($Answer) -and (Test-CanAsk)) {
+        try {
+          $Answer = Read-Host "This machine is logged in to $current. Switch this coord to ${ServerUrl}? [y/N]"
+        } catch {
+          $Answer = ""
+        }
+      }
+      $doSwitch = ([string]$Answer).Trim() -match '^(y|yes)$'
+    }
+    if ($doSwitch) {
+      $hostName = ([Uri]$current).Authority -replace '[^A-Za-z0-9.-]', '_'
+      $kept = Join-Path $towerDir "config.$hostName.json"
+      Copy-Item -LiteralPath $config -Destination $kept -Force
+      Write-ServerConfig -Config $config -ServerUrl $ServerUrl
+      Write-Host "Switched from $current to $ServerUrl; your login for $current is kept in $kept."
+      return
+    }
+    Write-Host "Kept ${current}: this machine is logged in there. To use $ServerUrl instead: coord login --server $ServerUrl"
+  }
+
+  # `coord setup`'s arguments; mirrored by setupArguments in install-ps1-pure.ts. Without a token
+  # the server is the one Save-ServerUrl recorded (or kept), so none is passed. -NoConnect runs
+  # only the install move; -KeepOld (inside a packaged app, or a custom -BinDir) moves the configs
+  # but deletes no old copy.
+  function Get-SetupArguments {
+    param([string]$ServerUrl, [string]$Token, [bool]$SkipLogin, [bool]$MoveOnly, [bool]$KeepOld)
+    $arguments = @("setup")
+    if ($MoveOnly) {
+      $arguments += "--move-only"
+    } else {
+      if (-not [string]::IsNullOrEmpty($Token)) { $arguments += @("--server", $ServerUrl, "--token", $Token) }
+      if ($SkipLogin) { $arguments += "--no-login" }
+    }
+    if ($KeepOld) { $arguments += "--keep-old" }
+    return ,$arguments
   }
 
   # Only our leftovers - never a shared BinDir's other *.old files, and never a
@@ -290,14 +465,19 @@ public static class CoordigentWin32 {
   }
 
   if ($Help) {
-    Write-Host "Usage: install.ps1 [-Server <url>] [-Token <token>] [-BinDir <dir>] [-NoConnect] [-NoPathUpdate]"
+    Write-Host "Usage: install.ps1 [-Server <url>] [-Token <token>] [-BinDir <dir>] [-NoLogin] [-NoConnect] [-NoPathUpdate]"
     return
   }
 
   $ServerUrl = Resolve-ServerUrl -Stamped $StampedServerUrl -EnvServer $env:TOWER_SERVER_URL -Override $Server
-  if ([string]::IsNullOrEmpty($BinDir)) {
+  $defaultBinDir = [string]::IsNullOrEmpty($BinDir)
+  if ($defaultBinDir) {
     $BinDir = Get-DefaultBinDir
   }
+  $PackageName = Get-CoordPackageName
+  $packagedBefore = @(Get-PackagedCopies)
+  # Windows' answer can be wrong (15700 in a shell the Claude app started): ask the file system too.
+  if (-not $PackageName) { $PackageName = Get-RedirectedPackage }
 
   # CreateDirectory is literal and idempotent (New-Item has no LiteralPath switch).
   [void][System.IO.Directory]::CreateDirectory($BinDir)
@@ -346,52 +526,61 @@ public static class CoordigentWin32 {
 
   Write-Host "Installed coord and coord-mcp to $BinDir"
 
-  Save-ServerUrl -ServerUrl $ServerUrl
+  # Inside a packaged app this PowerShell sees that app's private copies, and
+  # its PATH and AppData changes stay private: only a normal PowerShell can
+  # finish the move. Outside one, take the old folder off the PATH; coord setup
+  # retires the old copies (with -KeepOld it only repoints the configs).
+  $keepOld = [bool]$PackageName -or -not $defaultBinDir
+  if ($PackageName) {
+    Write-Warning ("install.ps1 is running inside the packaged app $PackageName (the Claude desktop app is one). " +
+      "coord is in $BinDir, which every app sees, but Windows keeps this app's changes to the user PATH and to AppData to itself. " +
+      "To finish, open a normal PowerShell from the Start menu and run: irm $ServerUrl/install.ps1 | iex")
+  } elseif ($defaultBinDir) {
+    Remove-LegacyPathEntry
+  }
 
+  Save-ServerUrl -ServerUrl $ServerUrl -Token $Token
+
+  # Without -NoPathUpdate this session's $env:Path already has $BinDir, so bare `coord` works here.
   function Show-NextLogin {
     Write-Host ""
-    if ($onPath -or $pathPersisted) {
-      if ($pathPersisted -and -not $onPath) {
-        Write-Host "Next: coord login   (open a new terminal, or run $coordExe login)"
-      } else {
-        Write-Host "Next: coord login"
-      }
+    if ($onPath -or -not $NoPathUpdate) {
+      Write-Host "Next: coord login"
+    } elseif ($pathPersisted) {
+      Write-Host "Next: coord login   (open a new terminal, or run $coordExe login)"
     } else {
       Write-Host "Next: $coordExe login"
     }
   }
 
-  if ($NoConnect) {
-    Show-NextLogin
-    return
-  }
-
-  if (-not [string]::IsNullOrEmpty($Token)) {
-    & $coordExe connect --server $ServerUrl --token $Token
-    if ($LASTEXITCODE -ne 0) { throw "coord connect exited with code $LASTEXITCODE" }
-    return
-  }
-
-  $configPath = if ($env:TOWER_DIR) {
-    Join-Path $env:TOWER_DIR "config.json"
-  } else {
-    Join-Path $env:USERPROFILE ".tower\config.json"
-  }
-  $loggedIn = $false
-  if (Test-Path -LiteralPath $configPath) {
-    try {
-      $cfg = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-      $loggedIn = -not [string]::IsNullOrEmpty([string]$cfg.token)
-    } catch {
-      $loggedIn = $false
+  # A packaged app's private copy of coord left or made by this run: say so, whatever Windows said.
+  function Show-PackagedCopies {
+    foreach ($copy in (Get-PackagedCopies)) {
+      $family = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $copy)))
+      if ($packagedBefore -notcontains $copy) {
+        Write-Warning ("This install wrote to $copy, the private AppData of the packaged app ${family}: this PowerShell runs inside it. " +
+          "Other apps do not see that folder. To finish, open a normal PowerShell from the Start menu and run: irm $ServerUrl/install.ps1 | iex")
+      } elseif (-not $PackageName) {
+        Write-Warning "The packaged app $family still has its own copy of coord in ${copy}; agents it starts may run that build. Close the app and run this installer again to remove it."
+      }
     }
   }
 
-  if ($loggedIn) {
-    & $coordExe connect
-    if ($LASTEXITCODE -ne 0) { throw "coord connect exited with code $LASTEXITCODE" }
+  # Everything else is `coord setup`. It asks nothing, so `irm | iex`, a console and CI run it alike.
+  # With -NoConnect it does only the move: hooks and MCP entries never keep naming a deleted coord.
+  $setupArguments = Get-SetupArguments -ServerUrl $ServerUrl -Token $Token -SkipLogin $NoLogin.IsPresent -MoveOnly $NoConnect.IsPresent -KeepOld $keepOld
+  & $coordExe @setupArguments
+  $setupExit = $LASTEXITCODE
+  Show-PackagedCopies
+  if ($NoConnect) {
+    Show-NextLogin
+    if ($setupExit -ne 0) { throw "coord setup --move-only exited with code $setupExit" }
     return
   }
-
-  Show-NextLogin
+  # -NoPathUpdate left this session's PATH alone: the one line that makes `coord` work here.
+  if (-not $onPath -and $NoPathUpdate) {
+    Write-Host ""
+    Write-Host "To use coord in this window now, run: `$env:Path = `"$BinDir;`$env:Path`""
+  }
+  if ($setupExit -ne 0) { throw "coord setup exited with code $setupExit" }
 }

@@ -5,7 +5,7 @@
 // It ships no binaries. On first run it downloads coord and coord-mcp for this
 // machine from the server's /install/<artifact>, checks each against the SHA-256
 // in /install/version the way scripts/install.sh does, and puts them where the
-// installers do (~/.tower/bin, or %LOCALAPPDATA%\Coordigent\bin on Windows). Then,
+// installers do (~/.tower/bin, or %USERPROFILE%\.coordigent\bin on Windows). Then,
 // and on every later run, it runs `coord <args>`. Because the binaries live where
 // the installers put them, `coord update` and every MCP config keep working.
 //
@@ -58,12 +58,16 @@ function resolveServer(env = process.env) {
   return url.trim().replace(/\/+$/, "");
 }
 
-/** Where the installers put the binaries: TOWER_BIN_DIR, else ~/.tower/bin (install.sh) or %LOCALAPPDATA%\Coordigent\bin (install.ps1). */
+/**
+ * Where the installers put the binaries: TOWER_BIN_DIR, else ~/.tower/bin (install.sh) or
+ * %USERPROFILE%\.coordigent\bin (install.ps1). Not AppData: from a packaged app such as the Claude
+ * desktop app (`npx -y coordigent mcp` in its config), files created there go to a private copy.
+ */
 function resolveBinDir(env = process.env, platform = process.platform) {
   const override = firstNonEmpty(env.TOWER_BIN_DIR);
   if (override) return override;
   if (platform === "win32") {
-    return join(firstNonEmpty(env.LOCALAPPDATA) ?? join(homedir(), "AppData", "Local"), "Coordigent", "bin");
+    return join(firstNonEmpty(env.USERPROFILE) ?? homedir(), ".coordigent", "bin");
   }
   return join(homedir(), ".tower", "bin");
 }

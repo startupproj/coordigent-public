@@ -3,7 +3,7 @@
   "name": "com.coordigent/coordigent",
   "title": "Coordigent",
   "description": "Coding agents in one repo see each other, get warned before shared edits, and message.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "websiteUrl": "https://coordigent.com/docs/integrations/hosted-server",
   "icons": [
     {
@@ -41,7 +41,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "coordigent",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {

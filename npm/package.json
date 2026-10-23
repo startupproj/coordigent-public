@@ -1,8 +1,11 @@
 {
   "name": "coordigent",
-  "version": "0.1.3",
-  "description": "Coordigent's coord and coord-mcp commands: downloads the binaries for this machine on first run, checks their SHA-256, and runs them. `npx coordigent` and `npx coordigent mcp` work too.",
+  "version": "0.1.4",
+  "description": "Coordigent's coord and coord-mcp commands: downloads the binaries for this machine on first run, checks their SHA-256, and runs them. `npx coordigent` and `npx coordigent mcp` work too. mcprush.com-8242fc9f4ab552f2820f7907",
   "homepage": "https://coordigent.com",
+  "bugs": {
+    "url": "https://github.com/startupproj/coordigent-public/issues"
+  },
   "license": "MIT",
   "mcpName": "com.coordigent/coordigent",
   "keywords": [

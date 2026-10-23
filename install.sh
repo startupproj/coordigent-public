@@ -3,15 +3,19 @@
 #
 #   curl -fsSL https://coordigent.com/install | sh
 #
-# Downloads the coord and coord-mcp binaries for this platform and puts them on
-# PATH. Without a token it stops there and points at `coord login`, which
-# approves this machine in the browser; no token is ever copied by hand.
+# Downloads the coord and coord-mcp binaries for this platform, puts them on
+# PATH, then runs `coord setup`, which does the rest in one go: signs this
+# machine in (the browser approval at a terminal; no token is ever copied by
+# hand), links every agent app it finds, connects the current folder when it is a
+# git repo, and starts this version's daemon. It ends with what is now true.
 #
-# Headless and CI machines pass one instead, and the script runs `coord connect`
-# with it to log in and register the Coordigent MCP server with every agent
-# client installed on this machine:
+# Headless and CI machines pass a token instead, and nothing waits for a browser:
 #
 #   curl -fsSL https://coordigent.com/install | sh -s -- --token <token>
+#
+# --no-login skips the browser sign-in; --no-connect skips sign-in, linking and
+# connecting (`coord setup --move-only`, which replaces a daemon still running an
+# older build) and prints what to run next.
 #
 # The server URL is substituted by the route that serves this script, so the
 # binaries always come from the origin the script itself came from. Pass
@@ -24,6 +28,7 @@ SERVER_URL="${TOWER_SERVER_URL:-@TOWER_SERVER_URL@}"
 TOKEN="${TOWER_TOKEN:-}"
 BIN_DIR="${TOWER_BIN_DIR:-$HOME/.tower/bin}"
 RUN_CONNECT=1
+RUN_LOGIN=1
 UPDATE_PATH=1
 
 need_value() {
@@ -54,12 +59,16 @@ while [ $# -gt 0 ]; do
       RUN_CONNECT=0
       shift
       ;;
+    --no-login)
+      RUN_LOGIN=0
+      shift
+      ;;
     --no-path-update)
       UPDATE_PATH=0
       shift
       ;;
     -h|--help)
-      echo "Usage: install.sh [--server <url>] [--token <token>] [--bin-dir <dir>] [--no-connect] [--no-path-update]"
+      echo "Usage: install.sh [--server <url>] [--token <token>] [--bin-dir <dir>] [--no-login] [--no-connect] [--no-path-update]"
       exit 0
       ;;
     *)
@@ -288,19 +297,66 @@ echo "Installed coord and coord-mcp to $BIN_DIR"
 # the hosted server when nothing says otherwise, so a copy installed from staging or
 # a self-hosted deployment would sign in to, and update from, the wrong one. On a
 # machine with no config yet, record the server this script came from: a config with
-# no token, which every command reads as logged out. An existing config is never
-# rewritten; when it names another server, say which one this coord uses.
+# no token, which every command reads as logged out.
+#
+# A config for another server used to be left alone with one line of advice, so a
+# machine first set up from staging stayed on staging after the coordigent.com
+# installer ran. Now this script's server wins unless that would lose a login:
+# - logged out there (only a server recorded): switch, and say so;
+# - logged in there: ask at a terminal (default no). A yes, or a --token for this
+#   server, moves that login aside to config.<host>.json, which is kept. With no
+#   terminal and no token, keep it and say how to switch.
+# config.json holds one login, so switching cannot keep using the old one.
 remember_server() {
   config="${TOWER_DIR:-$HOME/.tower}/config.json"
   if [ ! -f "$config" ]; then
-    mkdir -p "$(dirname "$config")"
-    (umask 077 && printf '{\n  "serverUrl": "%s"\n}\n' "$SERVER_URL" >"$config")
+    write_server_config "$config"
     return 0
   fi
   current=$(sed -n 's/.*"serverUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -n 1)
-  if [ -n "$current" ] && [ "${current%/}" != "${SERVER_URL%/}" ]; then
-    echo "This coord uses $current. To use $SERVER_URL instead: coord login --server $SERVER_URL"
+  if [ -z "$current" ] || [ "${current%/}" = "${SERVER_URL%/}" ]; then
+    return 0
   fi
+  if ! logged_in; then
+    write_server_config "$config"
+    echo "Switched from $current to $SERVER_URL (this machine was not logged in to $current)."
+    return 0
+  fi
+  if [ -n "${TOKEN:-}" ] || ask_switch "$current"; then
+    kept=$(keep_login "$config" "$current")
+    write_server_config "$config"
+    echo "Switched from $current to $SERVER_URL; your login for $current is kept in $kept."
+    return 0
+  fi
+  echo "Kept $current: this machine is logged in there. To use $SERVER_URL instead: coord login --server $SERVER_URL"
+}
+
+write_server_config() {
+  mkdir -p "$(dirname "$1")"
+  (umask 077 && printf '{\n  "serverUrl": "%s"\n}\n' "$SERVER_URL" >"$1")
+}
+
+# Copies the current login beside config.json, named for its server's host, and prints the path.
+keep_login() {
+  host=${2#*://}
+  host=${host%%/*}
+  host=$(printf '%s' "$host" | tr -c 'A-Za-z0-9.-' '_')
+  kept="$(dirname "$1")/config.$host.json"
+  (umask 077 && cp "$1" "$kept")
+  printf '%s' "$kept"
+}
+
+# `curl | sh` has the script on stdin, so the question goes to the terminal. No terminal: no.
+ask_switch() {
+  tty="${INSTALL_TTY:-/dev/tty}"
+  { [ -r "$tty" ] && [ -w "$tty" ]; } 2>/dev/null || return 1
+  { printf 'This machine is logged in to %s. Switch this coord to %s? [y/N] ' "$1" "$SERVER_URL" >>"$tty"; } 2>/dev/null || return 1
+  answer=""
+  { read -r answer <"$tty"; } 2>/dev/null || return 1
+  case "$answer" in
+    y | Y | yes | YES | Yes) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Logged in means a config with a token, not just a config.
@@ -310,7 +366,14 @@ logged_in() {
 
 remember_server
 
-# The tokenless ending: what to run next, and how to reach it from this shell.
+# This terminal's PATH is the parent shell's, which a piped script cannot change.
+path_hint() {
+  [ "$ON_PATH" -eq 0 ] || return 0
+  echo ""
+  echo "To use coord in this terminal now, run: export PATH=\"$BIN_DIR:\$PATH\""
+}
+
+# The --no-connect ending: what to run next, and how to reach it from this shell.
 next_login() {
   echo ""
   if [ "$ON_PATH" -eq 1 ]; then
@@ -323,19 +386,31 @@ next_login() {
 }
 
 if [ "$RUN_CONNECT" -eq 0 ]; then
+  # Signs nothing in and connects nothing, but a daemon left on the previous build is
+  # replaced by this one's, as install.ps1 -NoConnect does.
+  status=0
+  "$BIN_DIR/coord" setup --move-only </dev/null || status=$?
   next_login
-  exit 0
+  exit "$status"
 fi
 
+# Everything else is `coord setup`: sign in (the saved login if it still works, the
+# token, or the browser at a terminal; never in CI), link the agent apps, connect
+# this folder if it is a repo, start this version's daemon. It asks nothing, so it
+# runs the same from `curl | sh`, a terminal or CI. The server is the one recorded
+# above, unless a token says which server it is for.
+set -- setup
 if [ -n "$TOKEN" ]; then
-  exec "$BIN_DIR/coord" connect --server "$SERVER_URL" --token "$TOKEN"
+  set -- "$@" --server "$SERVER_URL" --token "$TOKEN"
 fi
-
-# No token supplied: connect still works if this machine already logged in.
-if logged_in; then
-  exec "$BIN_DIR/coord" connect
+if [ "$RUN_LOGIN" -eq 0 ]; then
+  set -- "$@" --no-login
 fi
+# stdin is the rest of this script under `curl | sh`; setup reads nothing, and must not.
+status=0
+"$BIN_DIR/coord" "$@" </dev/null || status=$?
 
-# Not logged in, and `curl | sh` has no terminal on stdin to approve from, so
-# login is the next thing the person runs rather than something run for them.
-next_login
+# `curl | sh` runs in a child shell, which cannot change this terminal's PATH.
+# One line makes coord work here now; new terminals already find it.
+path_hint
+exit "$status"
