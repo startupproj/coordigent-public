@@ -1,20 +1,26 @@
 {
   "name": "coordigent",
   "displayName": "Coordigent",
-  "description": "Coordinates AI coding agents working in parallel on a shared repo: activity capture, the coordigent MCP server, the coordination skill and the /coordigent-status, -msg and -handoff commands.",
+  "version": "0.1.5",
+  "description": "Run several coding agents on one repo without them stepping on each other: they see each other's files, get warned before a shared edit, and message each other.",
   "author": {
     "name": "Coordigent",
+    "email": "hi@coordigent.com",
     "url": "https://coordigent.com"
   },
   "homepage": "https://coordigent.com",
   "repository": "https://github.com/startupproj/coordigent-public",
   "license": "MIT",
+  "icon": "./.claude-plugin/icon.png",
   "documentationUrl": "https://coordigent.com/docs/integrations/claude-code",
+  "supportUrl": "https://coordigent.com/docs/support",
   "privacyPolicyUrl": "https://coordigent.com/privacy",
   "termsOfServiceUrl": "https://coordigent.com/terms",
   "keywords": [
     "coordination",
     "multi-agent",
-    "parallel-agents"
+    "parallel-agents",
+    "coding-agents",
+    "mcp"
   ]
 }

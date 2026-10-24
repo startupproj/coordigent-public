@@ -77,7 +77,7 @@ archives and as single files, plus `coordigent.mcpb` and `SHA256SUMS`. Check a d
 /plugin install coordigent@coordigent
 ```
 
-On Claude Code 2.1.275 or later, one line does both: `/plugin install coordigent --marketplace startupproj/coordigent-public`.
+From a shell, one line does both: `claude plugin install coordigent --marketplace startupproj/coordigent-public`.
 
 The plugin is in `plugins/coordigent/`. It runs `coord` and `coord-mcp` from your `PATH`, so
 install them first (above). Its README says what its hooks record and send:

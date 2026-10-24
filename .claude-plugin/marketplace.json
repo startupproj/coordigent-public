@@ -2,14 +2,15 @@
   "name": "coordigent",
   "owner": {
     "name": "Coordigent",
+    "email": "hi@coordigent.com",
     "url": "https://coordigent.com"
   },
-  "description": "Coordigent's plugin for Claude Code.",
+  "description": "Coordigent for Claude Code: coding agents on one repo see each other's files, get warned before a shared edit, and message each other.",
   "plugins": [
     {
       "name": "coordigent",
       "source": "./plugins/coordigent",
-      "description": "Coordinates AI coding agents working in parallel on a shared repo: activity capture, the coordigent MCP server, the coordination skill and the /coordigent-status, -msg and -handoff commands.",
+      "description": "Run several coding agents on one repo without them stepping on each other: they see each other's files, get warned before a shared edit, and message each other.",
       "category": "development"
     }
   ]

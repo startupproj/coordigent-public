@@ -15,9 +15,9 @@ Documentation: https://coordigent.com/docs/integrations/claude-code
 /plugin install coordigent@coordigent
 ```
 
-On Claude Code 2.1.275 or later, one line does both:
-`/plugin install coordigent --marketplace startupproj/coordigent-public`. Install `coord` first
-(below).
+From a shell, one line does both:
+`claude plugin install coordigent --marketplace startupproj/coordigent-public`. Install `coord`
+first (below).
 
 ## What the plugin contains
 
