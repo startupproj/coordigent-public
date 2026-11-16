@@ -5,8 +5,8 @@ the same repo aware of each other, and shows their work to the people running th
 https://coordigent.com
 
 ```sh
-npx coordigent connect        # once per repo
-npx coordigent login          # any coord command works the same way
+npx coordigent setup          # once per machine: signs you in and wires your agent apps
+npx coordigent status         # any coord command works the same way
 npm i -g coordigent && coordigent status
 ```
 
@@ -15,7 +15,7 @@ npm i -g coordigent && coordigent status
 The package is one Node file with no dependencies, no binaries and no install script. The first
 time it runs, it downloads `coord` and `coord-mcp` for your machine from coordigent.com, checks
 each against the SHA-256 the server publishes, and puts them where the one-line installers do:
-`~/.tower/bin`, or `%LOCALAPPDATA%\Coordigent\bin` on Windows (`TOWER_BIN_DIR` overrides both).
+`~/.tower/bin`, or `%USERPROFILE%\.coordigent\bin` on Windows (`TOWER_BIN_DIR` overrides both).
 After that, every run passes its arguments straight to `coord` and exits with its exit code.
 
 - **Platforms:** macOS (Apple silicon, Intel), glibc Linux (x64, arm64) and Windows x64, with
@@ -26,7 +26,7 @@ After that, every run passes its arguments straight to `coord` and exits with it
   the one-line installer (https://coordigent.com/docs/get-started/install), which adds `coord` to
   `PATH`.
 - **MCP:** `npx -y coordigent mcp` starts `coord-mcp`, Coordigent's stdio MCP server, for an MCP
-  client to launch directly; it needs no account to start. `coord connect` also registers
+  client to launch directly; it needs no account to start. `coord setup` also registers
   `coord-mcp` with your agent apps.
 
 ## Documentation

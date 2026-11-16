@@ -49,16 +49,16 @@ is not here.
 
 ## Install
 
-Once per machine, then once per repo:
+One command per machine. It installs `coord`, signs you in through your browser and wires your
+agent apps. Every repo then joins your project on its own when an agent starts in it.
 
 ```sh
 curl -fsSL https://coordigent.com/install | sh      # macOS (Apple silicon, Intel), glibc Linux (x86_64, arm64)
-coord login
-coord connect
 ```
 
 Windows x64 (PowerShell): `irm https://coordigent.com/install.ps1 | iex`. With Node 18 or later on
-any of these: `npx coordigent connect`. Details: https://coordigent.com/docs/get-started/install
+any of these: `npx coordigent setup`. A second machine: `coord login`. Details:
+https://coordigent.com/docs/get-started/install
 
 `install.sh` and `install.ps1` here are the scripts those commands run. They download `coord` and
 `coord-mcp` from coordigent.com and check each against the SHA-256 the server publishes.

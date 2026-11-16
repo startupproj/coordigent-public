@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v coord >/dev/null 2>&1 || echo 'Coordigent: the coord command is not on PATH, so this plugin is inactive. Install steps: https://coordigent.com/docs/get-started/install'"
+            "command": "command -v coord >/dev/null 2>&1 || echo 'Coordigent: the coord command is not on PATH, so this plugin is inactive. Run /coordigent:coordigent-setup to install it, or see https://coordigent.com/docs/get-started/install'"
           }
         ]
       },
@@ -37,6 +37,15 @@
           {
             "type": "command",
             "command": "coord emit --hook"
+          },
+          {
+            "type": "command",
+            "command": "coord emit --hook-wake",
+            "async": true,
+            "asyncRewake": true,
+            "rewakeSummary": "Coordigent: a message woke this agent",
+            "rewakeMessage": "Coordigent woke this agent:",
+            "timeout": 3600
           }
         ]
       }
@@ -107,6 +116,30 @@
             "type": "command",
             "command": "'coord' hook claude-code SessionEnd",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "coord emit --hook-permission",
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "coord emit --hook",
+            "async": true
           }
         ]
       }

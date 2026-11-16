@@ -1,5 +1,5 @@
 ---
-description: Send a message to another agent working in this repo
+description: Send a message to another agent in this project
 argument-hint: "<message>"
 ---
 

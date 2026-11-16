@@ -51,6 +51,9 @@ param(
   $HostedServerUrl = "https://coordigent.com"
   # Single-quoted so a stamped URL never runs as a PowerShell subexpression.
   $StampedServerUrl = '@TOWER_SERVER_URL@'
+  # The growth link this script was fetched with (`?src=`), stamped by the route that serves it.
+  $InstallSource = '@COORDIGENT_INSTALL_SOURCE@'
+  if ($InstallSource.StartsWith("@")) { $InstallSource = "" }
   $Platform = "windows-x64"
   $MissingWindowsBuild = "Windows build not available yet"
   $BinaryNames = @("coord", "coord-mcp")
@@ -343,6 +346,70 @@ public static class CoordigentWin32 {
     return ,$arguments
   }
 
+  # The one ping this run sends (docs/telemetry.md, "Install pings"): the stage it ended at, whether
+  # it got through, the OS, the CPU, the version and this machine's random install id. No path, no
+  # name; the server stores no address with it. COORDIGENT_TELEMETRY=off (or 0, false, no) sends nothing. It
+  # waits at most 3 seconds and never fails or stops the install. Mirrored by install.sh.
+  function Test-TelemetryOff {
+    return @("off", "0", "false", "no") -contains ("" + $env:COORDIGENT_TELEMETRY).Trim().ToLowerInvariant()
+  }
+
+  function Get-InstallIdFile {
+    $towerDir = if ($env:TOWER_DIR) { $env:TOWER_DIR } else { (Join-Path $env:USERPROFILE ".tower") }
+    return (Join-Path $towerDir "install-id")
+  }
+
+  # The id an earlier install wrote, or null when there is none to use.
+  function Read-InstallId {
+    try {
+      $file = Get-InstallIdFile
+      if (Test-Path -LiteralPath $file -PathType Leaf) {
+        $saved = (("" + (Get-Content -LiteralPath $file -Raw)) -replace '[^A-Za-z0-9-]', '')
+        if ($saved.Length -ge 8) { return $saved.Substring(0, [Math]::Min(64, $saved.Length)) }
+      }
+    } catch {}
+    return $null
+  }
+
+  # The id an earlier install wrote, else a new random one.
+  function Get-InstallId {
+    $saved = Read-InstallId
+    if ($saved) { return $saved }
+    return [guid]::NewGuid().ToString()
+  }
+
+  # Kept for the next install; a file with no usable id is replaced.
+  function Save-InstallId {
+    param([string]$InstallId)
+    if (Test-TelemetryOff) { return }
+    try {
+      $file = Get-InstallIdFile
+      if (Read-InstallId) { return }
+      [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $file))
+      [System.IO.File]::WriteAllText($file, "$InstallId`n")
+    } catch {}
+  }
+
+  function Send-InstallEvent {
+    param([string]$ServerUrl, [string]$InstallId, [string]$Stage, [bool]$Ok, [long]$ExitCode, [string]$Version)
+    if (Test-TelemetryOff) { return }
+    try {
+      $clean = { param($Value) (("" + $Value) -replace '[^A-Za-z0-9._-]', '') }
+      # The OS's CPU, even from a 32-bit PowerShell (.NET 4.7.1+); else what the environment says.
+      $cpu = $null
+      try { $cpu = [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture } catch {}
+      if (-not $cpu) { $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE } }
+      $arch = & $clean $cpu
+      if (-not $arch) { $arch = "unknown" }
+      $version = & $clean $Version
+      $body = [ordered]@{
+        installId = $InstallId; stage = $Stage; ok = $Ok; os = "Windows"; arch = $arch.Substring(0, [Math]::Min(40, $arch.Length))
+        version = $version.Substring(0, [Math]::Min(40, $version.Length)); src = $InstallSource; exitCode = $ExitCode
+      } | ConvertTo-Json -Compress
+      Invoke-WebRequest -Uri "$ServerUrl/install/event" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3 -UseBasicParsing | Out-Null
+    } catch {}
+  }
+
   # Only our leftovers - never a shared BinDir's other *.old files, and never a
   # directory named *.old (Remove-Item would prompt without -Recurse).
   function Clear-CoordOldBinaries {
@@ -491,8 +558,19 @@ public static class CoordigentWin32 {
     # Older server or offline version endpoint: install unverified below.
     Write-Verbose "install/version unavailable; continuing without checksums: $_"
   }
+  $installVersion = ""
+  try { if ($checksumsJson) { $installVersion = [string](ConvertFrom-Json $checksumsJson).version } } catch {}
+  $installId = Get-InstallId
+  Save-InstallId -InstallId $installId
 
-  Install-Binaries -Directory $BinDir -ServerUrl $ServerUrl -ChecksumsJson $checksumsJson
+  try {
+    Install-Binaries -Directory $BinDir -ServerUrl $ServerUrl -ChecksumsJson $checksumsJson
+  } catch {
+    $failure = "$($_.Exception.Message)"
+    $failedStage = if ($failure -eq $MissingWindowsBuild) { "platform" } elseif ($failure -match "checksum") { "verify" } else { "download" }
+    Send-InstallEvent -ServerUrl $ServerUrl -InstallId $installId -Stage $failedStage -Ok $false -ExitCode 1 -Version $installVersion
+    throw
+  }
 
   # Test harness on non-Windows (COORD_INSTALL_USER_PATH_FILE): downloaded
   # shell-script stubs need +x so -Token can invoke `coord connect`.
@@ -571,6 +649,11 @@ public static class CoordigentWin32 {
   $setupArguments = Get-SetupArguments -ServerUrl $ServerUrl -Token $Token -SkipLogin $NoLogin.IsPresent -MoveOnly $NoConnect.IsPresent -KeepOld $keepOld
   & $coordExe @setupArguments
   $setupExit = $LASTEXITCODE
+  if ($setupExit -eq 0) {
+    Send-InstallEvent -ServerUrl $ServerUrl -InstallId $installId -Stage "done" -Ok $true -ExitCode 0 -Version $installVersion
+  } else {
+    Send-InstallEvent -ServerUrl $ServerUrl -InstallId $installId -Stage "setup" -Ok $false -ExitCode $setupExit -Version $installVersion
+  }
   Show-PackagedCopies
   if ($NoConnect) {
     Show-NextLogin

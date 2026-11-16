@@ -22,7 +22,7 @@
 // run time, so `npm i --ignore-scripts` installs a working launcher.
 "use strict";
 
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn, spawnSync, execFileSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const { homedir } = require("node:os");
 const { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } = require("node:fs");
@@ -153,11 +153,40 @@ function downloadFailure(response, url, platform) {
   );
 }
 
+/** One command's exit status; `missing` when the command is not on this machine. */
+function runCommand(command, args) {
+  const result = spawnSync(command, args, { stdio: ["ignore", "pipe", "pipe"], timeout: 15_000 });
+  return { status: result.status, missing: result.error?.code === "ENOENT" };
+}
+
+/**
+ * macOS: the binaries are cross-compiled on Linux, and Bun's payload sits after the linker's
+ * signature, so it no longer matches; macOS 27 kills such a binary at exec, printing nothing.
+ * Until releases are signed with a Developer ID, re-sign each ad hoc (`codesign --force --sign -`),
+ * as install.sh and `coord update` do. `sign` runs on the downloads before they are moved into
+ * place; `check` on the installed binaries, which must answer `--version`.
+ */
+const macSignature = {
+  sign(paths, run = runCommand) {
+    for (const path of paths) {
+      if (run("codesign", ["--force", "--sign", "-", path]).missing) return;
+    }
+  },
+  check(paths, run = runCommand) {
+    const dead = paths.filter((path) => run(path, ["--version"]).status !== 0);
+    if (!dead.length) return;
+    throw new LauncherError(
+      `${dead.join(" and ")} did not start: macOS refuses a binary whose code signature is not valid.\n` +
+        `Fix: codesign --force --sign - ${dead.map((path) => JSON.stringify(path)).join(" ")}`
+    );
+  },
+};
+
 /**
  * Downloads and checks every binary before writing any of them, so a refusal
  * halfway leaves nothing behind. Nothing unverified is ever made executable.
  */
-async function install({ server, binDir, platform, fetchImpl, log }) {
+async function install({ server, binDir, platform, fetchImpl, log, run = runCommand }) {
   const checksums = await fetchChecksums(fetchImpl, server);
   const downloads = [];
   for (const name of BINARIES) {
@@ -185,13 +214,18 @@ async function install({ server, binDir, platform, fetchImpl, log }) {
   }
 
   mkdirSync(binDir, { recursive: true });
+  const darwin = platform.startsWith("darwin-");
+  const targets = [];
   for (const { name, bytes } of downloads) {
     const target = join(binDir, `${name}${exeSuffix(platform)}`);
     const tmp = `${target}.download`;
     writeFileSync(tmp, bytes, { mode: 0o755 });
     chmodSync(tmp, 0o755);
+    if (darwin) macSignature.sign([tmp], run);
     renameSync(tmp, target);
+    targets.push(target);
   }
+  if (darwin) macSignature.check(targets, run);
   log(`Installed coord and coord-mcp to ${binDir}`);
 }
 
@@ -277,6 +311,6 @@ async function main(args = process.argv.slice(2), env = process.env, fixed = und
   }
 }
 
-module.exports = { main, resolvePlatform, resolveServer, resolveBinDir, resolveCommand };
+module.exports = { main, install, resolvePlatform, resolveServer, resolveBinDir, resolveCommand };
 
 if (require.main === module) main();

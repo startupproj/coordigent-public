@@ -26,8 +26,10 @@ first (below).
   `coord hook claude-code <event>`, apart from one SessionStart check that `coord` is on `PATH`.
 - **An MCP server** (`.mcp.json`) named `coordigent`, started as `coord-mcp`, with the
   `coordigent.*` tools: who else is working, which files are in use, messages and handoffs.
-- **A skill** (`coordigent-context`) with the coordination rules, and three commands:
-  `/coordigent:coordigent-status`, `/coordigent:coordigent-msg` and `/coordigent:coordigent-handoff`.
+- **A skill** (`coordigent-context`) with the coordination rules, and four commands:
+  `/coordigent:coordigent-status`, `/coordigent:coordigent-msg`, `/coordigent:coordigent-handoff` and
+  `/coordigent:coordigent-setup`, which installs `coord` through `npx coordigent` when it is missing and
+  connects the repo.
 
 ## What it needs
 
@@ -41,7 +43,7 @@ irm https://coordigent.com/install.ps1 | iex       # Windows (PowerShell)
 
 Both installers add their directory to `PATH`; start Claude Code from a new terminal afterwards.
 Until `coord` is on `PATH`, the first SessionStart hook prints one line saying the plugin is
-inactive, and the other hooks do nothing. Then run `coord login` to share your agents' activity
+inactive and names `/coordigent:coordigent-setup`; the other hooks do nothing. Then run `coord login` to share your agents' activity
 with your team, or skip it to use Coordigent on this machine only.
 
 ## What it sends, and where

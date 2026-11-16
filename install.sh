@@ -95,6 +95,66 @@ SERVER_URL="${SERVER_URL%/}"
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
+
+# The one ping this run sends (docs/telemetry.md, "Install pings"): the stage it ended at, whether
+# it got through, the OS, the CPU, the version and this machine's random install id. No path, no
+# name; the server stores no address with it. COORDIGENT_TELEMETRY=off (or 0, false, no) sends nothing. It waits
+# at most 3 seconds and never fails or stops the install.
+# The route that serves this script stamps the growth link it was fetched with (`?src=`).
+INSTALL_SOURCE="@COORDIGENT_INSTALL_SOURCE@"
+case "$INSTALL_SOURCE" in
+  @*) INSTALL_SOURCE="" ;;
+esac
+INSTALL_VERSION=""
+INSTALL_ID_FILE="${TOWER_DIR:-$HOME/.tower}/install-id"
+telemetry_off() {
+  case "$(printf '%s' "${COORDIGENT_TELEMETRY:-}" | tr -d '[:space:]' | tr 'A-Z' 'a-z')" in
+    off | 0 | false | no) return 0 ;;
+  esac
+  return 1
+}
+# The id an earlier install wrote, else a new random one.
+INSTALL_ID=""
+INSTALL_ID_SAVED=0
+if [ -f "$INSTALL_ID_FILE" ]; then
+  INSTALL_ID="$({ tr -cd 'A-Za-z0-9-' <"$INSTALL_ID_FILE"; } 2>/dev/null | cut -c1-64 || true)"
+fi
+if [ "${#INSTALL_ID}" -ge 8 ]; then
+  INSTALL_ID_SAVED=1
+else
+  INSTALL_ID="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -cd '0-9a-f' || true)"
+  [ "${#INSTALL_ID}" -ge 8 ] || INSTALL_ID="sh-$$-$(date +%s)"
+fi
+# Kept for the next install, once there is a ~/.tower to keep it in; a file with no usable id is replaced.
+remember_install_id() {
+  telemetry_off && return 0
+  [ "$INSTALL_ID_SAVED" -eq 1 ] && return 0
+  (mkdir -p "$(dirname "$INSTALL_ID_FILE")" && umask 077 && printf '%s\n' "$INSTALL_ID" >"$INSTALL_ID_FILE") 2>/dev/null || true
+}
+# report_install <stage> <true|false> <exit code>
+report_install() {
+  telemetry_off && return 0
+  _clean() { printf '%s' "$1" | tr -cd "$2" | cut -c1-40; }
+  _body=$(printf '{"installId":"%s","stage":"%s","ok":%s,"os":"%s","arch":"%s","version":"%s","src":"%s","exitCode":%s}' \
+    "$INSTALL_ID" "$1" "$2" "$(_clean "$OS" 'A-Za-z0-9._-')" "$(_clean "$ARCH" 'A-Za-z0-9._-')" \
+    "$(_clean "$INSTALL_VERSION" 'A-Za-z0-9._-')" "$(_clean "$INSTALL_SOURCE" 'a-z0-9-')" "$3")
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 3 -o /dev/null -H 'Content-Type: application/json' --data "$_body" "$SERVER_URL/install/event" >/dev/null 2>&1 || true
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -T 3 -O /dev/null --header='Content-Type: application/json' --post-data="$_body" "$SERVER_URL/install/event" >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+# fail_install <stage>: the ping for a run that stops here, then the exit.
+fail_install() {
+  report_install "$1" false 1
+  exit 1
+}
+# The ping for a run that got as far as `coord setup`: done, or the code setup exited with.
+finish_install() {
+  if [ "$1" -eq 0 ]; then report_install done true 0; else report_install setup false "$1"; fi
+}
+
 is_musl() {
   getconf GNU_LIBC_VERSION >/dev/null 2>&1 && return 1
   for loader in /lib/ld-musl-*.so.1; do
@@ -105,7 +165,7 @@ is_musl() {
 if [ "$OS" = Linux ] && is_musl; then
   echo "install.sh: prebuilt Linux binaries require glibc; Alpine/musl is not supported." >&2
   echo "Use a glibc-based Linux distribution, or run Coordigent from source with Bun." >&2
-  exit 1
+  fail_install platform
 fi
 case "$OS-$ARCH" in
   Darwin-arm64) PLATFORM="darwin-arm64" ;;
@@ -122,7 +182,7 @@ case "$OS-$ARCH" in
   *)
     echo "install.sh: no prebuilt binary for $OS-$ARCH." >&2
     echo "Supported: macOS arm64 and x86_64, Linux x86_64 and aarch64/arm64. Build from source with 'bun run build:cli'." >&2
-    exit 1
+    fail_install platform
     ;;
 esac
 
@@ -185,7 +245,10 @@ CHECKSUMS=""
 if download "$SERVER_URL/install/version" "$BIN_DIR/.version.json" 2>/dev/null; then
   CHECKSUMS="$(cat "$BIN_DIR/.version.json")"
   rm -f "$BIN_DIR/.version.json"
+  INSTALL_VERSION="$(printf '%s' "$CHECKSUMS" | tr ',' '\n' | grep '"version"[[:space:]]*:' | head -1 |
+    sed 's/.*"version"[[:space:]]*:[[:space:]]*"//; s/".*//')"
 fi
+remember_install_id
 
 published_sha() {
   # Pull one value out of the flat `checksums` object without needing jq.
@@ -209,7 +272,7 @@ for name in coord coord-mcp; do
     echo "install.sh: could not download $url" >&2
     explain_download_failure "$headers"
     rm -f "$headers"
-    exit 1
+    fail_install download
   fi
   rm -f "$headers"
 
@@ -222,7 +285,7 @@ for name in coord coord-mcp; do
       rm -f "$tmp"
       echo "install.sh: cannot verify the download — no sha256sum or shasum on this machine." >&2
       echo "Install one, or build from source with 'bun run build:cli'." >&2
-      exit 1
+      fail_install verify
     fi
     if [ "$actual" != "$expected" ]; then
       rm -f "$tmp"
@@ -230,7 +293,7 @@ for name in coord coord-mcp; do
       echo "  expected $expected" >&2
       echo "  got      $actual" >&2
       echo "Nothing was installed. This is what a tampered or truncated download looks like." >&2
-      exit 1
+      fail_install verify
     fi
   else
     # An older server, or one whose build did not publish binaries. Say so
@@ -239,7 +302,18 @@ for name in coord coord-mcp; do
   fi
 
   chmod +x "$tmp"
+  # The macOS binaries are cross-compiled on Linux, and Bun's payload sits after the linker's
+  # signature, so it no longer matches. macOS 27 kills such a binary at exec, printing nothing.
+  # Re-sign it ad hoc here until releases are signed with a Developer ID (docs/roadmap.md).
+  if [ "$OS" = Darwin ] && command -v codesign >/dev/null 2>&1; then
+    codesign --force --sign - "$tmp" >/dev/null 2>&1 || true
+  fi
   mv -f "$tmp" "$BIN_DIR/$name"
+  if [ "$OS" = Darwin ] && ! "$BIN_DIR/$name" --version >/dev/null 2>&1; then
+    echo "install.sh: $BIN_DIR/$name did not start: macOS refuses a binary whose code signature is not valid." >&2
+    echo "Fix: codesign --force --sign - \"$BIN_DIR/$name\"" >&2
+    fail_install codesign
+  fi
 done
 
 # Whether a new shell is needed before `coord` resolves, decided before this
@@ -391,6 +465,7 @@ if [ "$RUN_CONNECT" -eq 0 ]; then
   status=0
   "$BIN_DIR/coord" setup --move-only </dev/null || status=$?
   next_login
+  finish_install "$status"
   exit "$status"
 fi
 
@@ -413,4 +488,5 @@ status=0
 # `curl | sh` runs in a child shell, which cannot change this terminal's PATH.
 # One line makes coord work here now; new terminals already find it.
 path_hint
+finish_install "$status"
 exit "$status"
