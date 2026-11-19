@@ -16,6 +16,15 @@
           {
             "type": "command",
             "command": "coord emit --hook"
+          },
+          {
+            "type": "command",
+            "command": "coord emit --hook-wake",
+            "async": true,
+            "asyncRewake": true,
+            "rewakeSummary": "Coordigent: a message woke this agent",
+            "rewakeMessage": "Coordigent woke this agent:",
+            "timeout": 86400
           }
         ]
       },
@@ -45,7 +54,7 @@
             "asyncRewake": true,
             "rewakeSummary": "Coordigent: a message woke this agent",
             "rewakeMessage": "Coordigent woke this agent:",
-            "timeout": 3600
+            "timeout": 86400
           }
         ]
       }
