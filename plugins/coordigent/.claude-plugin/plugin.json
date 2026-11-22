@@ -1,7 +1,7 @@
 {
   "name": "coordigent",
   "displayName": "Coordigent",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Run several coding agents on one repo without them stepping on each other: they see each other's files, get warned before a shared edit, and message each other.",
   "author": {
     "name": "Coordigent",
