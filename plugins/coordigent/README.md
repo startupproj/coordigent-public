@@ -26,10 +26,10 @@ first (below).
   `coord hook claude-code <event>`, apart from one SessionStart check that `coord` is on `PATH`.
 - **An MCP server** (`.mcp.json`) named `coordigent`, started as `coord-mcp`, with the
   `coordigent.*` tools: who else is working, which files are in use, messages and handoffs.
-- **A skill** (`coordigent-context`) with the coordination rules, and four commands:
-  `/coordigent:coordigent-status`, `/coordigent:coordigent-msg`, `/coordigent:coordigent-handoff` and
-  `/coordigent:coordigent-setup`, which installs `coord` through `npx coordigent` when it is missing and
-  connects the repo.
+- **Commands**: `/coordigent:coordigent-status`, `/coordigent:coordigent-msg`,
+  `/coordigent:coordigent-handoff` and `/coordigent:coordigent-setup`, which installs `coord` through
+  `npx coordigent` when it is missing and connects the repo. The coordination rules travel as the
+  MCP server's instructions. The plugin does not ship a skill.
 
 ## What it needs
 
